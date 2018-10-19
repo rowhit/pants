@@ -438,15 +438,14 @@ class RscCompile(ZincCompile):
             '-cp', os.pathsep.join(metai_classpath + metacp_jar_classpath_rel),
             '-out', rsc_out,
           ] + target_sources
+          i_snapshot = ctx.target.sources_snapshot(scheduler=self.context._scheduler)
           self._runtool(
             'rsc.cli.Main',
             'rsc',
             args,
             distribution,
             tgt=tgt,
-            # TODO pass the input files from the target snapshot instead of the below
-            # input_snapshot = ctx.target.sources_snapshot(scheduler=self.context._scheduler)
-            input_files=target_sources + metai_classpath + metacp_jar_classpath_rel,
+            input_files=tuple(i_snapshot + metai_classpath + metacp_jar_classpath_rel),
             output_dir=rsc_outline_dir)
           rsc_classpath = [rsc_outline_dir]
 
@@ -473,7 +472,7 @@ class RscCompile(ZincCompile):
             args,
             distribution,
             tgt=tgt,
-            input_files=(
+            input_files=tuple(
               rsc_out,
             ),
             output_dir=os.path.dirname(rsc_mjar_file)
@@ -558,6 +557,7 @@ class RscCompile(ZincCompile):
           args = [
             '--include-scala-library-synthetics',
           ] + args
+        i_snapshot = ctx.target.sources_snapshot(scheduler=self.context._scheduler)
         metacp_wu = self._runtool(
           'scala.meta.cli.Metacp',
           'metacp',
@@ -748,7 +748,8 @@ class RscCompile(ZincCompile):
       )
     ]
 
-  def _runtool(self, main, tool_name, args, distribution, tgt=None, input_files=tuple(), output_dir=None):
+  def _runtool(
+    self, main, tool_name, args, distribution, tgt=None, input_files=tuple(), output_dir=None):
     if self.execution_strategy == self.HERMETIC:
       # TODO: accept input_digests as well as files.
       with self.context.new_workunit(tool_name) as wu:
@@ -761,8 +762,6 @@ class RscCompile(ZincCompile):
           PathGlobs(tuple(pathglobs)),
           text_type(get_buildroot()))
 
-        tool_snapshots = self.context._scheduler.capture_snapshots((root,))
-        input_files_directory_digest = tool_snapshots[0].directory_digest
         classpath_for_cmd = os.pathsep.join(tool_classpath)
         cmd = [
           distribution.java,
@@ -772,9 +771,11 @@ class RscCompile(ZincCompile):
         cmd.extend([main])
         cmd.extend(args)
 
+        i_digest = self.context._scheduler.capture_snapshots((root,))[0].directory_digest if len(
+          input_files) == 0 else input_files[0].directory_digest
         epr = ExecuteProcessRequest(
           argv=tuple(cmd),
-          input_files=input_files_directory_digest,
+          input_files=i_digest,
           output_files=tuple(),
           output_directories=(output_dir,),
           timeout_seconds=15*60,
@@ -842,7 +843,8 @@ class RscCompile(ZincCompile):
       args,
       distribution,
       tgt=tgt,
-      input_files=tuple(metai_classpath) + tuple(extra_input_files),
+      input_files=tuple(tgt.sources_snapshot(scheduler=self.context._scheduler), metai_classpath) +
+        tuple(extra_input_files),
       output_dir=rsc_index_dir
     )
 
